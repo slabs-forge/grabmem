@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -26,6 +27,12 @@ void docleanup() {
 	unlinkat(0,SOCKET_PATH,0);
 }
 
+void sighandler(int sig) {
+	docleanup();
+	signal(sig,SIG_DFL);
+	raise(sig);
+}
+
 void doallocate() {
 	// Round page up
 	size_t n = ((claim + ps - 1) & ~ (ps-1));
@@ -34,13 +41,12 @@ void doallocate() {
 		printf("Allocating %ld pages (%lu kB)\n",n / ps,n / 1024);
 		pAlloc = realloc(pAlloc,n);
 		
-		printf("Initializing\n");
 		if (pAlloc && (n > nAlloc)) {
+			// Write each page to force allocation
 			for (size_t i = nAlloc ; i < n ; i += ps) {
 				pAlloc[i]=1;
 			}
 		}
-		printf("Initializing done\n");
 
 		nAlloc = n;
 	}
@@ -59,6 +65,12 @@ void dograb() {
 
 	long delta;
 
+	cr = access(SOCKET_PATH,F_OK);
+	if (cr == 0 || errno != ENOENT) {
+		fprintf(stderr,"Socket already exists\n");
+		exit(3);
+	}
+
 	ssd = socket(AF_UNIX,SOCK_STREAM,0);
 	if (ssd == 0) {
 		fprintf(stderr,"Can't create socket: %s\n",strerror(errno));
@@ -69,17 +81,13 @@ void dograb() {
 	sa.sun_family = AF_UNIX;
 	strcpy(sa.sun_path,SOCKET_PATH);
 
-	cr = unlinkat(0,SOCKET_PATH,0);
-	if (cr < 0 && errno != ENOENT) {
-		fprintf(stderr,"Can't bind socket: %s\n",strerror(errno));
-		exit(3);
-	}
-
 	cr = bind(ssd,(struct sockaddr*)&sa,sizeof(sa));
 	if (cr <0) {
 		fprintf(stderr,"Can't bind socket: %s\n",strerror(errno));
 		exit(3);
 	}
+	signal(SIGTERM,sighandler);
+	signal(SIGINT,sighandler);
 	atexit(docleanup);
 
 	cr = listen(ssd,1);
@@ -98,7 +106,7 @@ void dograb() {
 			buffer[c]=0;
 
 			cr = readValue(buffer,&delta);
-			if (cr == 0) {
+			if (cr >= 0) {
 				claim = claim + delta;
 				if (claim <0) claim = 0;
 			}

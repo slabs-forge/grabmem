@@ -8,6 +8,8 @@
 int readValue(const char* str,long* val) {
 	char* end = 0;
 
+	errno = 0;
+
 	long q = strtol(str,&end,10);
 	long m = 1;
 

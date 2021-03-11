@@ -2,7 +2,8 @@
 CC=gcc
 LDFLAGS=-static
 
-all: grabmem grabmore
+all: grabmem grabmore Dockerfile
+	docker build -t sebetln/grabmem .
 
 grabmem: grabmem.o grabcommon.o
 	$(CC) $(LDFLAGS) $+ -o $@
